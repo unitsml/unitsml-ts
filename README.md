@@ -6,8 +6,13 @@ UnitsML in TypeScript — the native port of
 **No Opal** — this replaces the Opal-compiled `@unitsml/unitsml` npm
 package.
 
-Status: **scaffold** — the port is owned by @suleman-uzair; the checklist
-lives in the open issues.
+Status: **core complete** — the parse pipeline (extras, sqrt→0.5 powers,
+`/` and `//` exponent inversion, prefix-only instances) and the UnitsML
+XML / AsciiMath renders match unitsml-ruby 0.6.11 on the frozen render
+oracle (87/87 cases; `npm run replay`). The oracle was frozen from
+unitsml-ruby's conv specs; the two `kcal_IT` cases are excluded pending
+an upstream mml fix. MathML, LaTeX, HTML and Unicode renders, and
+plurimath integration, are follow-ups on the mml-ts/amath-ts wave.
 
 ## Target shape
 
