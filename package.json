@@ -8,17 +8,18 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test test/"
+    "test": "node --test",
+    "replay": "node scripts/replay-oracle.mjs"
   },
   "dependencies": {
-    "@unitsml/asciiunits-ts": "^0.1.0",
+    "@unitsml/asciiunits-ts": "github:unitsml/asciiunits-ts",
     "@unitsml/unitsdb": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.5.0"
   },
- "license": "BSD-2-Clause",
+  "license": "BSD-2-Clause",
   "repository": {
     "type": "git",
     "url": "https://github.com/unitsml/unitsml-ts"
