@@ -1,0 +1,59 @@
+name: release
+
+# npm publish with provenance (SLSA attestation via GitHub OIDC),
+# mirroring unitsml/unitsdb-js. Requires the package to be configured
+# for trusted publishing on npmjs.com (github: unitsml/unitsml-ts,
+# workflow: release.yml).
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      next_version:
+        description: "Version to publish (x.y.z, major, minor, patch, skip)"
+        required: true
+        default: 'skip'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION="${{ github.event.inputs.next_version }}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "skip" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install and build
+        run: |
+          npm install
+          npm run build
+
+      - name: Test and replay the conformance corpus
+        run: |
+          npm test
+          npm run replay
+
+      - name: Set package version
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          if [ "$VERSION" != "$(node -p "require('./package.json').version")" ]; then
+            npm version "$VERSION" --no-git-tag-version
+          fi
+
+      - name: Publish to npm with provenance
+        run: npm publish --provenance --access public
