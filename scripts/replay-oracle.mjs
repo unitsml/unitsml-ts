@@ -1,7 +1,7 @@
-// Replays the frozen unitsml-ruby render oracle (fixtures/render-oracle.json,
-// frozen from unitsml-ruby 0.6.11) against this port: norm_text, asciimath,
-// and UnitsML XML per input. XML comparison is semantic (whitespace between
-// tags collapsed, quotes unified) since indentation is serializer detail.
+// Replays the SHARED unitsml-testsuite corpus (github.com/unitsml/
+// unitsml-testsuite, corpora/renders) — the same oracle unitsml-ruby
+// replays. CORPUS_DIR points at the checkout; the default expects the
+// testsuite cloned as a sibling of this repository.
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,23 +9,25 @@ import { parse } from "../dist/index.js";
 import { toXml } from "../dist/render.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const oracle = JSON.parse(
-  readFileSync(join(ROOT, "fixtures", "render-oracle.json"), "utf8"),
+const CORPUS_DIR =
+  process.env.CORPUS_DIR ??
+  join(ROOT, "..", "unitsml-testsuite", "corpora", "renders");
+const corpus = JSON.parse(
+  readFileSync(join(CORPUS_DIR, "expected-renders.json"), "utf8"),
 );
 
-let passed = 0;
-const failures = [];
-
 const NAMED_ENTITIES = {
-  micro: "\u00b5", Omega: "\u03a9", deg: "\u00b0", prime: "\u2032",
-  minus: "\u2212", sdot: "\u22c5", ldquo: "\u201c", amp: "&",
-  lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0",
+  micro: "µ", Omega: "Ω", deg: "°", prime: "′",
+  minus: "−", sdot: "⋅", amp: "&", lt: "<", gt: ">",
+  quot: '"', apos: "'", nbsp: " ",
 };
 
 function decodeEntities(xml) {
   return xml
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) =>
+      String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) =>
+      String.fromCodePoint(parseInt(d, 10)))
     .replace(/&([a-zA-Z]+);/g, (m, name) => NAMED_ENTITIES[name] ?? m);
 }
 
@@ -35,45 +37,41 @@ function normalizeXml(xml) {
   ).trim();
 }
 
-for (const [input, expected] of Object.entries(oracle)) {
-  if (expected.error) continue;
+let passed = 0;
+let skipped = 0;
+const failures = [];
+
+for (const entry of corpus.cases) {
+  const input = entry.input;
+  if (entry.kind === "ruby_error") {
+    skipped += 1;
+    continue;
+  }
+  const expected = entry.renders;
   try {
     const formula = await parse(input);
-    const actual = {
-      norm_text: formula.normText,
-      asciimath: formula.toAsciimath(),
-      xml: normalizeXml(toXml(formula)),
-    };
-    const expectedNormalized = {
-      norm_text: expected.norm_text,
-      asciimath: expected.asciimath,
-      xml: normalizeXml(expected.xml),
-    };
     const mismatches = [];
-    for (const key of ["norm_text", "asciimath"]) {
-      if (actual[key] !== expectedNormalized[key]) {
-        mismatches.push(`${key}: got ${JSON.stringify(actual[key])}, want ${JSON.stringify(expectedNormalized[key])}`);
-      }
+    if (formula.normText !== expected.norm_text) {
+      mismatches.push(`norm_text: got ${JSON.stringify(formula.normText)}, want ${JSON.stringify(expected.norm_text)}`);
     }
-    if (actual.xml !== expectedNormalized.xml) {
-      mismatches.push(`xml: got ${JSON.stringify(actual.xml.slice(0, 300))}, want ${JSON.stringify(expectedNormalized.xml.slice(0, 300))}`);
+    if (formula.toAsciimath() !== expected.asciimath) {
+      mismatches.push(`asciimath: got ${JSON.stringify(formula.toAsciimath())}, want ${JSON.stringify(expected.asciimath)}`);
     }
-    if (mismatches.length > 0 && process.env.VERBOSE) {
-      console.error(`DEBUG ${JSON.stringify(input)} norm: ${JSON.stringify([actual.norm_text, expectedNormalized.norm_text])} am: ${JSON.stringify([actual.asciimath, expectedNormalized.asciimath])}`);
+    const gotXml = normalizeXml(toXml(formula));
+    const wantXml = normalizeXml(expected.xml);
+    if (gotXml !== wantXml) {
+      const at = [...gotXml].findIndex((ch, i) => ch !== wantXml[i]);
+      mismatches.push(`xml at ${at}: got ${JSON.stringify(gotXml.slice(Math.max(0, at - 40), at + 80))}, want ${JSON.stringify(wantXml.slice(Math.max(0, at - 40), at + 80))}`);
     }
-    if (mismatches.length === 0) {
-      passed += 1;
-    } else {
-      failures.push({ input, mismatches });
-    }
+    if (mismatches.length === 0) passed += 1;
+    else failures.push({ input, mismatches });
   } catch (error) {
     failures.push({ input, mismatches: [`threw: ${error.message}`] });
   }
 }
 
-
-
-console.log(`${passed}/${Object.keys(oracle).filter((k) => !oracle[k].error).length} oracle cases pass`);
+const total = corpus.cases.length;
+console.log(`${passed}/${total - skipped} render cases pass (${skipped} ruby_error rows skipped)`);
 for (const { input, mismatches } of failures.slice(0, Number(process.env.SHOW ?? 10))) {
   console.error(`FAIL ${JSON.stringify(input)}`);
   for (const m of mismatches) console.error(`  ${m}`);
