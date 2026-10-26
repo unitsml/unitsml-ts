@@ -1,5 +1,5 @@
 export * from "./model.js";
-export * from "./unitsdb.js";
+export * from "@unitsml/unitsdb-ts";
 export { Parser, ParseError, mapTree, updateUnitsExponents } from "./parser.js";
 export * from "./utility.js";
 export { toXml } from "./render.js";
