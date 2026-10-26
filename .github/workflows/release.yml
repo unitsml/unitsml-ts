@@ -1,9 +1,13 @@
 name: release
 
 # npm publish with provenance (SLSA attestation via GitHub OIDC),
-# mirroring unitsml/unitsdb-js. Requires the package to be configured
-# for trusted publishing on npmjs.com (github: unitsml/unitsml-ts,
-# workflow: release.yml).
+# mirroring unitsml/unitsdb-js. Requires @unitsml/unitsml to be
+# configured for trusted publishing on npmjs.com (github:
+# unitsml/unitsml-ts, workflow: release.yml).
+#
+# Dev/CI installs resolve @unitsml/asciiunits and @unitsml/unitsdb
+# from their git repos; this workflow finalizes the published
+# ranges from the release inputs before publishing.
 
 permissions:
   contents: read
@@ -16,6 +20,14 @@ on:
         description: "Version to publish (x.y.z, major, minor, patch, skip)"
         required: true
         default: 'skip'
+      asciiunits_version:
+        description: "Released @unitsml/asciiunits version to depend on"
+        required: true
+        default: "0.1.0"
+      unitsdb_version:
+        description: "Released @unitsml/unitsdb version to depend on (maintainer's version choice)"
+        required: true
+        default: ""
 
 jobs:
   release:
@@ -35,7 +47,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
       - name: Install and build
@@ -47,6 +59,14 @@ jobs:
         run: |
           npm test
           npm run replay
+        env:
+          CORPUS_DIR: ${{ github.workspace }}/unitsml-testsuite/corpora/renders
+
+      - name: Finalize published dependency ranges
+        run: node scripts/finalize-deps.mjs
+        env:
+          FINALIZE_ASCIIUNITS: ${{ github.event.inputs.asciiunits_version }}
+          FINALIZE_UNITSDB: ${{ github.event.inputs.unitsdb_version }}
 
       - name: Set package version
         run: |
@@ -54,6 +74,21 @@ jobs:
           if [ "$VERSION" != "$(node -p "require('./package.json').version")" ]; then
             npm version "$VERSION" --no-git-tag-version
           fi
+
+      - name: Republish-resolve and rebuild against the released ranges
+        run: |
+          rm -rf node_modules package-lock.json
+          npm install
+          npm run build
+          npm test
+        env:
+          CORPUS_DIR: ${{ github.workspace }}/unitsml-testsuite/corpora/renders
+
+      - name: Check out the conformance corpus
+        uses: actions/checkout@v4
+        with:
+          repository: unitsml/unitsml-testsuite
+          path: unitsml-testsuite
 
       - name: Publish to npm with provenance
         run: npm publish --provenance --access public
