@@ -1,6 +1,6 @@
 {
   "name": "@unitsml/unitsml-ts",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0",
   "description": "UnitsML in TypeScript: parse and render UnitsML unit expressions natively (asciiunits-ts PARG runtime, no Opal)",
   "type": "module",
   "main": "dist/index.js",
@@ -8,11 +8,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test",
-    "replay": "node scripts/replay-oracle.mjs"
+    "replay": "node scripts/replay-oracle.ts"
   },
   "dependencies": {
     "@unitsml/asciiunits-ts": "^0.1.0",
-    "@unitsml/unitsdb": "^3.0.0"
+    "@unitsml/unitsdb-ts": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -28,5 +28,14 @@
   },
   "files": [
     "dist"
-  ]
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=24"
+  }
 }
