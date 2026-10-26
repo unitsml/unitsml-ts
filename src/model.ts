@@ -1,7 +1,7 @@
 // The unitsml model: a 1:1 port of unitsml-ruby's model classes
 // (lib/unitsml/{formula,unit,prefix,dimension,number,fenced,sqrt,
 // extender}.rb), including their render methods.
-import { Unitsdb, unitNistId, prefixNistId, type UnitRecord, type PrefixRecord, type DimensionRecord, type UnitSymbol, type DerivedBase, dimensionComponents } from "@unitsml/unitsdb";
+import { Unitsdb, unitNistId, prefixNistId, type UnitRecord, type PrefixRecord, type DimensionRecord, type UnitSymbol, type DerivedBase, dimensionComponents } from "unitsdb";
 import { serializeMathml, mathTag, stringToHtmlEntity, escapeNonAscii, type MathmlNode } from "./mathml.js";
 
 

@@ -1,7 +1,7 @@
 // Parse pipeline: a port of unitsml-ruby's Unitsml::Parser (extras,
 // TreeMapper dispatch, build_formula, update_units_exponents, the
 // trailing "-" only_instance rule).
-import { parseShape, type AsciiUnitsTree } from "@unitsml/asciiunits";
+import { parseShape, type AsciiUnitsTree } from "asciiunits";
 import {
   Dimension,
   Extender,

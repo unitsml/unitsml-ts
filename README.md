@@ -3,7 +3,7 @@
 UnitsML in TypeScript — the native port of
 [unitsml-ruby](https://github.com/unitsml/unitsml-ruby), built on the
 [asciiunits-ts](https://github.com/unitsml/asciiunits-ts) PARG runtime.
-**No Opal** — this replaces the Opal-compiled `@unitsml/unitsml` npm
+**No Opal** — this replaces the Opal-compiled `unitsml` npm
 package.
 
 Status: **core complete** — the parse pipeline (extras, sqrt→0.5 powers,
@@ -19,10 +19,10 @@ plurimath integration, are follow-ups on the mml-ts/amath-ts wave.
 
 ```
 src/
-├── parse/        AsciiUnits -> model (on @unitsml/asciiunits)
+├── parse/        AsciiUnits -> model (on asciiunits)
 ├── model/        Formula, Unit, Prefix, Dimension, Number, Fenced, Sqrt, Extender
 ├── render/       UnitsML XML, MathML, LaTeX, AsciiMath, Unicode, HTML
-└── unitsdb/      UnitsDB data access (@unitsml/unitsdb npm)
+└── unitsdb/      UnitsDB data access (unitsdb npm)
 ```
 
 ## Behavioral contract
