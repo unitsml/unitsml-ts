@@ -1,5 +1,5 @@
 {
-  "name": "@unitsml/unitsml",
+  "name": "unitsml",
   "version": "0.1.0",
   "description": "UnitsML in TypeScript: parse and render UnitsML unit expressions natively (PARG artifact runtime, no Opal)",
   "type": "module",
@@ -11,8 +11,8 @@
     "replay": "node scripts/replay-oracle.ts"
   },
   "dependencies": {
-    "@unitsml/asciiunits": "github:unitsml/asciiunits-ts",
-    "@unitsml/unitsdb": "github:unitsml/unitsdb-ts"
+    "asciiunits": "github:unitsml/asciiunits-ts",
+    "unitsdb": "github:unitsml/unitsdb-ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
