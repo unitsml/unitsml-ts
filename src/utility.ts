@@ -24,7 +24,7 @@ import {
   dimensionVector,
   type UnitRecord,
   type PrefixRecord,
-} from "@unitsml/unitsdb-ts";
+} from "@unitsml/unitsdb";
 import { stringToHtmlEntity } from "./mathml.js";
 
 export const U2D: Record<string, { dimension: string; order: number; symbol: string }> = {

@@ -19,7 +19,7 @@ plurimath integration, are follow-ups on the mml-ts/amath-ts wave.
 
 ```
 src/
-├── parse/        AsciiUnits -> model (on @unitsml/asciiunits-ts)
+├── parse/        AsciiUnits -> model (on @unitsml/asciiunits)
 ├── model/        Formula, Unit, Prefix, Dimension, Number, Fenced, Sqrt, Extender
 ├── render/       UnitsML XML, MathML, LaTeX, AsciiMath, Unicode, HTML
 └── unitsdb/      UnitsDB data access (@unitsml/unitsdb npm)
