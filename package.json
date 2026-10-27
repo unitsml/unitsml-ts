@@ -11,8 +11,8 @@
     "replay": "node scripts/replay-oracle.ts"
   },
   "dependencies": {
-    "asciiunits": "github:unitsml/asciiunits-ts",
-    "unitsdb": "github:unitsml/unitsdb-ts"
+    "asciiunits": "^0.1.0",
+    "unitsdb": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
