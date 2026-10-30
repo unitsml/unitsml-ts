@@ -55,6 +55,12 @@ jobs:
           npm install
           npm run build
 
+      - name: Check out the conformance corpus
+        uses: actions/checkout@v4
+        with:
+          repository: unitsml/unitsml-testsuite
+          path: unitsml-testsuite
+
       - name: Test and replay the conformance corpus
         run: |
           npm test
@@ -83,12 +89,6 @@ jobs:
           npm test
         env:
           CORPUS_DIR: ${{ github.workspace }}/unitsml-testsuite/corpora/renders
-
-      - name: Check out the conformance corpus
-        uses: actions/checkout@v4
-        with:
-          repository: unitsml/unitsml-testsuite
-          path: unitsml-testsuite
 
       - name: Publish to npm with provenance
         run: npm publish --access public
