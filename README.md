@@ -15,6 +15,41 @@ https://github.com/unitsml/unitsml-testsuite[unitsml/unitsml-testsuite]
 an upstream mml fix. MathML, LaTeX, HTML and Unicode renders, and
 plurimath integration, are follow-ups on the mml-ts/amath-ts wave.
 
+## Quantities and conversions
+
+Exact unit conversion ports unitsml-ruby `Unitsml::Conversion`,
+`Conversion::Definition` and the conversion/difference part of
+`Unitsml::Quantity`: BigInt-backed `Rational` values, UnitsDB
+`canonical_conversion` data, prefix powers that scale with the unit power,
+affine (temperature) offsets only on a lone power-1 unit, difference
+quantities that convert without addends, and UnitsML
+`Float64ConversionFrom` definitions (lexical decimals preserved,
+`SpecialConversionFrom`/`WSDLConversionFrom` refused).
+
+```ts
+import { Quantity, ConversionDefinition } from "unitsml";
+
+const t = await Quantity.parse("20", "degC");
+(await t.convertTo("degF")).value.toDecimalString();          // "68"
+const dt = t.minus(await Quantity.parse("15", "degC"));
+(await dt.convertTo("K")).value.toString();                   // "5"
+ConversionDefinition.fromXml(
+  '<Float64ConversionFrom xml:id="d" initialUnit="#NISTu5" finalAddend="273.15"/>',
+).forward("0").toDecimalString();                             // "273.15"
+```
+
+Errors are typed like the Ruby ones: `ConversionError`,
+`DimensionMismatchError`, `ScaleOperationError`. Quantity products and
+quotients with unit composition (Ruby `Quantity#*`/`#/`) are not ported
+yet. The data comes from the `unitsdb` package: canonical conversion,
+scale and reference-URI fields need a unitsdb release carrying the schema
+2.2.0 projection.
+
+`npm run replay:conversions` replays the shared
+[unitsml-testsuite](https://github.com/unitsml/unitsml-testsuite)
+`corpora/conversions` vectors (`CONVERSION_CORPUS_DIR`), the same cases
+unitsml-ruby replays; every case kind runs and a missing corpus fails.
+
 ## Target shape
 
 ```

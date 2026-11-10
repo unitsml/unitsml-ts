@@ -8,7 +8,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test",
-    "replay": "node scripts/replay-oracle.ts"
+    "replay": "node scripts/replay-oracle.ts",
+    "replay:conversions": "node scripts/replay-conversions.ts"
   },
   "dependencies": {
     "asciiunits": "^0.1.0",

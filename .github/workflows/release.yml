@@ -65,8 +65,10 @@ jobs:
         run: |
           npm test
           npm run replay
+          npm run replay:conversions
         env:
           CORPUS_DIR: ${{ github.workspace }}/unitsml-testsuite/corpora/renders
+          CONVERSION_CORPUS_DIR: ${{ github.workspace }}/unitsml-testsuite/corpora/conversions
 
       - name: Finalize published dependency ranges
         run: node scripts/finalize-deps.mjs
@@ -87,8 +89,12 @@ jobs:
           npm install
           npm run build
           npm test
+          # Qualify what is published: replay against the released ranges.
+          npm run replay
+          npm run replay:conversions
         env:
           CORPUS_DIR: ${{ github.workspace }}/unitsml-testsuite/corpora/renders
+          CONVERSION_CORPUS_DIR: ${{ github.workspace }}/unitsml-testsuite/corpora/conversions
 
       - name: Publish to npm with provenance
         run: npm publish --access public
