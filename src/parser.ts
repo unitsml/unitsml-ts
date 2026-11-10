@@ -240,7 +240,9 @@ export function updateUnitsExponents(
       }
       if (inverse) object.inversePowerNumerator;
     } else if (object instanceof Dimension) {
+      // Ruby 7595cc1: dimensions follow the unit rule after "/".
       if (sqrt) object.powerNumerator = new Number_("0.5");
+      else if (inverse) object.inversePowerNumerator;
     } else if (object instanceof Extender) {
       if (object.symbol === "/" || object.symbol === "//") inverse = !inverse;
     } else if (object instanceof Formula) {

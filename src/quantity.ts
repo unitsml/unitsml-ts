@@ -13,7 +13,7 @@ import { copyFormula, quantityProduct } from "./compose.js";
 import { Dimension, Fenced, Formula, Number_, Sqrt, Unit, type ModelNode } from "./model.js";
 import { Parser } from "./parser.js";
 import { Rational } from "./rational.js";
-import { units2dimensions } from "./utility.js";
+import { DIMS_VECTOR, dimId, units2dimensions } from "./utility.js";
 
 /** unitsml-ruby Errors::DimensionMismatchError. */
 export class DimensionMismatchError extends Error {
@@ -83,6 +83,21 @@ export class Quantity {
   /** Parse unitExpression (an AsciiUnits expression) and build the quantity. */
   static async parse(value: RationalInput, unitExpression: string): Promise<Quantity> {
     return new Quantity(value, await new Parser(unitExpression).parse());
+  }
+
+  /** Canonical dimension identity (Ruby Quantity#dimension_id): the
+   * unitsdb dimension id of the summed vector in DIMS_VECTOR order;
+   * undefined when every exponent cancels (pure numbers, sqrt forms pinned
+   * by the Ruby baseline) or when the vector itself is undefined. */
+  dimensionId(): string | undefined {
+    const vector = this.dimensionVector();
+    if (vector === undefined) return undefined;
+    const list = DIMS_VECTOR.filter((dimension) => (vector.get(dimension) ?? 0) !== 0).map((dimension) => ({
+      dimension,
+      exponent: vector.get(dimension)!,
+    }));
+    if (list.length === 0) return undefined;
+    return dimId(list as Parameters<typeof dimId>[0]) ?? "1";
   }
 
   /** Base-dimension exponents summed across the expression; undefined when

@@ -341,6 +341,18 @@ export class Prefix extends BaseModel {
   }
 }
 
+/** unitsml-ruby PowerNumerator#inverse_power_numerator (shared by units and
+ * dimensions since 7595cc1): flip the exponent's sign in place for a term
+ * after "/" in a parsed string; no exponent becomes -1. */
+function invertPowerNumerator(power: NumericValue | number | undefined): NumericValue {
+  if (power instanceof Number_ || power instanceof Fenced) {
+    power.updateNegativeSign();
+    return power;
+  }
+  if (typeof power === "number") return new Number_(String(-power));
+  return new Number_("-1");
+}
+
 export class Unit extends BaseModel {
   constructor(
     public unitName: string,
@@ -440,16 +452,7 @@ export class Unit extends BaseModel {
   }
 
   get inversePowerNumerator(): NumericValue | undefined {
-    if (this.powerNumerator instanceof Number_ || this.powerNumerator instanceof Fenced) {
-      this.powerNumerator.updateNegativeSign();
-      return this.powerNumerator;
-    }
-    if (typeof this.powerNumerator === "number") {
-      this.powerNumerator = new Number_(String(-this.powerNumerator));
-      return this.powerNumerator;
-    }
-    this.powerNumerator = new Number_("-1");
-    return this.powerNumerator;
+    return (this.powerNumerator = invertPowerNumerator(this.powerNumerator));
   }
 
   private get displayExp(): string | undefined {
@@ -471,6 +474,10 @@ export class Dimension extends BaseModel {
     public powerNumerator?: NumericValue,
   ) {
     super();
+  }
+
+  get inversePowerNumerator(): NumericValue | undefined {
+    return (this.powerNumerator = invertPowerNumerator(this.powerNumerator));
   }
 
   get instance(): DimensionRecord | undefined {

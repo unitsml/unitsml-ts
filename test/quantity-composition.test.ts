@@ -5,12 +5,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   Dimension,
+  DimensionMismatchError,
   Extender,
   Formula,
   IndeterminateResultError,
   InvalidUnitEntryError,
   MixedTermsError,
   Number_,
+  ParseError,
   Prefix,
   Quantity,
   Rational,
@@ -280,4 +282,164 @@ test("isolation: scalar and additive results get independent trees (:373, :390)"
   }
   assert.equal(a.formula!.value[0], leaf);
   assert.deepEqual([power(leaf), leaf.prefix?.prefixName, a.normText], ["2", "k", "km^2"]);
+});
+
+// --- unknown text (spec :470) ---
+
+test("unknown text: an unknown unit or prefix is the parser's failure (:471)", async () => {
+  for (const source of ["foo", "xm"]) {
+    await assert.rejects(() => Quantity.parse(1, source), ParseError);
+  }
+});
+
+// --- baseline replay (spec :484): pinned existing behaviour, deferred #82 ---
+
+const joule = { Length: 2, Mass: 1, Time: -2 };
+
+test("baseline: recorded arithmetic rows (:519)", async () => {
+  const rows: Array<[string, string, "times" | "dividedBy", string, Record<string, number>]> = [
+    ["W/m", "s", "times", "W*m^(-1)*s", { Length: 1, Mass: 1, Time: -2 }],
+    ["J/s", "m/s", "dividedBy", "J*s^(-1)*m^(-1)*s", { Length: 1, Mass: 1, Time: -2 }],
+    ["m", "W/m", "dividedBy", "m*W^(-1)*m", { Mass: -1, Time: 3 }],
+    ["W", "m*s", "dividedBy", "W*m^(-1)*s^(-1)", { Length: 1, Mass: 1, Time: -4 }],
+    ["m", "s", "dividedBy", "m/s", { Length: 1, Time: -1 }],
+  ];
+  for (const [left, right, op, text, vec] of rows) {
+    const result = (await q(left))[op](await q(right));
+    assert.deepEqual([value(result), result.normText, vector(result)], ["1", text, vec], `${left} ${op} ${right}`);
+  }
+});
+
+test("baseline: recorded dimension vectors, roots/fractions (:527)", async () => {
+  const rows: Record<string, Record<string, number>> = {
+    "m^(1/2)": { Length: 1 }, "J^(1/2)": joule, J: joule,
+    "dim_L*dim_M": {}, "sqrt(m)": {}, "sqrt(m^2)": {},
+    "sqrt(m*s)": {}, "sqrt((m*s))": {}, "s/sqrt(m)": { Time: 1 },
+    "sqrt(sqrt(m))": {}, "sqrt(dim_L)": {},
+  };
+  for (const [source, vec] of Object.entries(rows)) assert.deepEqual(vector(await q(source)), vec, source);
+  assert.equal((await q("1/sqrt(m)")).dimensionVector(), undefined);
+});
+
+test("baseline: recorded dimension ids and fractional product (:536)", async () => {
+  assert.equal((await q("m^(1/2)")).dimensionId(), "NISTd1");
+  assert.equal((await q("sqrt(m)")).dimensionId(), undefined);
+  assert.deepEqual(vector((await q("m^(1/2)")).times(await q("m^(1/2)"))), { Length: 2 });
+});
+
+test("baseline: recorded dimension-leaf rows (:543)", async () => {
+  assert.equal(value((await q("dim_L")).plus(new Quantity(2))), "3");
+  await assert.rejects(async () => (await q("dim_L")).plus(await q("m")), DimensionMismatchError);
+  await assert.rejects(async () => (await q("dim_L")).times(await q("m")), MixedTermsError);
+  const quotient = (await q("dim_M")).dividedBy(await q("dim_L"));
+  assert.equal(toXml(quotient.formula!), toXml(await parse("dim_M/dim_L")));
+});
+
+test("baseline: recorded interval and ratio scale rows (:559, :568)", async () => {
+  const interval = (v: number) => q("K", v, "interval");
+  const diff = (await interval(10)).minus(await interval(2));
+  assert.equal(diff.scale, "difference");
+  assert.equal(value(diff.times(2)), "16");
+  await assert.rejects(async () => (await interval(10)).times(2), ScaleOperationError);
+  assert.equal((await q("K", 10)).plus(await interval(2)).scale, "ratio");
+  assert.equal((await q("m", 2)).times(await q("s", 3)).scale, "ratio");
+});
+
+test("baseline: recorded fenced-power product vectors (:574)", async () => {
+  const rows: Record<string, Record<string, number>> = {
+    "m^((1/2))": { Length: 1, Time: 1 },
+    "m^(1/2)": { Length: 1, Time: 1 },
+    "m^-1": { Length: -1, Time: 1 },
+    "g^((((3))))": { Mass: 3, Time: 1 },
+    "m^((-2))": { Length: -2, Time: 1 },
+    "K^(((-1)))": { Time: 1, ThermodynamicTemperature: -1 },
+  };
+  for (const [source, vec] of Object.entries(rows)) {
+    assert.deepEqual(vector((await q(source)).times(await q("s"))), vec, source);
+  }
+});
+
+test("baseline: recorded scalar and pure-number rows (:580, :588)", async () => {
+  const rows: Array<[string | undefined, Record<string, number>]> = [
+    ["m", { Length: 1 }], ["sqrt(m)", {}], ["m^(1/2)", { Length: 1 }], [undefined, {}],
+  ];
+  for (const [source, vec] of rows) {
+    const result = (await q(source, 4)).times(2);
+    assert.deepEqual([value(result), vector(result)], ["8", vec], String(source));
+  }
+  assert.deepEqual(vector(new Quantity(5).dividedBy(await q("s", 2))), { Time: -1 });
+  assert.deepEqual(vector((await q("s", 4)).dividedBy(new Quantity(2))), { Time: 1 });
+  assert.deepEqual(vector(new Quantity(4).times(new Quantity(2))), {});
+});
+
+// --- entry points: composed Formula operand (spec :75) ---
+
+test("entry points: accepts a composed Formula operand (:75)", async () => {
+  const formula = new Quantity(1, new Unit("W")).dividedBy(new Unit("m")).formula!;
+  const result = new Quantity(6, formula).times(await q("s", 2));
+  assert.deepEqual([value(result), result.normText, vector(result)], [
+    "12", "W*m^(-1)*s", { Length: 1, Mass: 1, Time: -2 },
+  ]);
+});
+
+// --- operand isolation: no shared mutable state (spec :422) ---
+
+function mutableParts(nodes: ModelNode[]): Set<object> {
+  const out = new Set<object>();
+  for (const leaf of leaves(nodes)) {
+    out.add(leaf);
+    if (leaf.powerNumerator && typeof leaf.powerNumerator === "object") out.add(leaf.powerNumerator);
+    if (leaf instanceof Unit && leaf.prefix) out.add(leaf.prefix);
+  }
+  return out;
+}
+
+test("isolation: results share no mutable leaf, exponent or prefix objects (:422)", async () => {
+  const a = await q("km^((2))", 4);
+  const b = await q("ms^-1", 2);
+  const source = new Set([...mutableParts(a.formula!.value), ...mutableParts(b.formula!.value)]);
+  for (const result of [a.times(b), a.dividedBy(b), b.dividedBy(a), a.times(3), a.plus(a)]) {
+    const shared = [...mutableParts(result.formula!.value)].filter((part) => source.has(part));
+    assert.deepEqual(shared, [], result.normText);
+  }
+});
+
+// --- parser independence after operand setup (spec :432) ---
+// The TS constructor is synchronous and never parses; only Quantity.parse
+// reaches the (async) parser, so object operands combine without parsing.
+
+test("parser independence: object operands build and combine without parsing (:442, :451)", () => {
+  const formula = new Quantity(1, new Unit("m")).dividedBy(new Unit("s")).formula!;
+  const a = new Quantity(4, formula);
+  const b = new Quantity(2, new Unit("m"));
+  const dim = new Dimension("dim_L");
+  const d = new Quantity(2, new Quantity(1).times(dim).times(dim).formula);
+  const results = [
+    a.times(b), a.dividedBy(b), a.times(2), a.dividedBy(2), a.plus(a), a.minus(a),
+    a.times(new Unit("m")), a.dividedBy(new Unit("s")), a.times(formula), a.dividedBy(formula), d.times(dim),
+  ];
+  for (const result of results) {
+    assert.ok(result instanceof Quantity);
+    assert.ok(result.formula instanceof Formula);
+  }
+});
+
+test("parser independence: String entries go only through Quantity.parse (:460)", async () => {
+  assert.throws(
+    () => new Quantity(1, "m" as unknown as Unit),
+    (error: unknown) => error instanceof InvalidUnitEntryError && error.field === "unit" && error.value === "m",
+  );
+  assert.equal((await Quantity.parse(1, "m")).normText, "m");
+});
+
+// --- parsed dimension division (composite_spec "parsed dimension division",
+// unitsml-ruby 7595cc1; needed by the :543 dimension-leaf row) ---
+
+test("parsed dimension division inverts the dimension after / (composite_spec 7595cc1)", async () => {
+  for (const [text, id] of [["dim_L/dim_T", "D_LT-1"], ["dim_L/dim_T^2", "D_LT-2"], ["dim_M/dim_L^-3", "D_L3M"]]) {
+    assert.ok(toXml(await parse(text)).includes(`xml:id="${id}"`), text);
+  }
+  assert.equal(toXml(await parse("dim_L/dim_T")), toXml(await parse("dim_L*dim_T^-1")));
+  const quotient = new Quantity(2, await parse("dim_L")).dividedBy(new Quantity(1, await parse("dim_T")));
+  assert.equal(quotient.normText, "dim_L*dim_T^(-1)");
 });
