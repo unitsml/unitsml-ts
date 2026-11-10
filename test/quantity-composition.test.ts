@@ -56,6 +56,11 @@ function shape(quantity: Quantity): Array<[string, string | undefined]> {
 
 const vector = (quantity: Quantity) => Object.fromEntries(quantity.dimensionVector() ?? []);
 const value = (quantity: Quantity) => quantity.value.toString();
+// Exact exponents as strings ("1/2"); null when there is no decomposition.
+const exact = (quantity: Quantity) => {
+  const vec = quantity.exactDimensionVector();
+  return vec === undefined ? null : Object.fromEntries([...vec].map(([k, v]) => [k, v.toString()]));
+};
 
 // --- composition through the builder (spec :23) ---
 
@@ -310,21 +315,34 @@ test("baseline: recorded arithmetic rows (:519)", async () => {
   }
 });
 
-test("baseline: recorded dimension vectors, roots/fractions (:527)", async () => {
-  const rows: Record<string, Record<string, number>> = {
-    "m^(1/2)": { Length: 1 }, "J^(1/2)": joule, J: joule,
-    "dim_L*dim_M": {}, "sqrt(m)": {}, "sqrt(m^2)": {},
-    "sqrt(m*s)": {}, "sqrt((m*s))": {}, "s/sqrt(m)": { Time: 1 },
-    "sqrt(sqrt(m))": {}, "sqrt(dim_L)": {},
+// Ruby (spec :527/:536/:574/:580) truncates fractional exponents with
+// to_i and drops powers on derived units (m^(1/2) a length, sqrt(m)
+// dimensionless, J^(1/2) a joule). Those rows are not reproduced: the
+// exponents stay exact, an integer-only dimensionVector() is undefined for
+// fractional ones, and a root the decomposition cannot see through is
+// unknown rather than dimensionless.
+test("exact roots/fractions: dimension vectors (Ruby :527 diverges)", async () => {
+  const rows: Record<string, Record<string, string> | null> = {
+    "m^(1/2)": { Length: "1/2" }, "J^(1/2)": { Length: "1", Mass: "1/2", Time: "-1" },
+    J: { Length: "2", Mass: "1", Time: "-2" }, "dim_L*dim_M": {}, "sqrt(m)": { Length: "1/2" },
+    "s/sqrt(m)": { Time: "1", Length: "-1/2" }, "Hz^(1/2)": { Time: "-1/2" },
+    "m^(1/3)": { Length: "1/3" }, "sqrt(m*s)": null, "sqrt((m*s))": null,
+    "sqrt(sqrt(m))": null, "sqrt(dim_L)": null, "1/sqrt(m)": null,
   };
-  for (const [source, vec] of Object.entries(rows)) assert.deepEqual(vector(await q(source)), vec, source);
-  assert.equal((await q("1/sqrt(m)")).dimensionVector(), undefined);
+  for (const [source, vec] of Object.entries(rows)) assert.deepEqual(exact(await q(source)), vec, source);
+  assert.equal((await q("sqrt(m)")).dimensionVector(), undefined);
+  assert.deepEqual(vector(await q("J")), joule);
 });
 
-test("baseline: recorded dimension ids and fractional product (:536)", async () => {
-  assert.equal((await q("m^(1/2)")).dimensionId(), "NISTd1");
+test("exact roots/fractions: dimension ids and fractional product (Ruby :536 diverges)", async () => {
+  assert.equal((await q("m^(1/2)")).dimensionId(), undefined);
   assert.equal((await q("sqrt(m)")).dimensionId(), undefined);
-  assert.deepEqual(vector((await q("m^(1/2)")).times(await q("m^(1/2)"))), { Length: 2 });
+  assert.equal((await q("J^(1/2)")).dimensionId(), undefined);
+  const square = (await q("m^(1/2)")).times(await q("m^(1/2)"));
+  assert.deepEqual(vector(square), { Length: 1 });
+  assert.equal(square.dimensionId(), "NISTd1");
+  await assert.rejects(async () => (await q("sqrt(m)")).plus(await q("sqrt(s)")), DimensionMismatchError);
+  assert.equal((await q("sqrt(m)", 2)).plus(await q("sqrt(m)", 3)).value.toString(), "5");
 });
 
 test("baseline: recorded dimension-leaf rows (:543)", async () => {
@@ -345,10 +363,11 @@ test("baseline: recorded interval and ratio scale rows (:559, :568)", async () =
   assert.equal((await q("m", 2)).times(await q("s", 3)).scale, "ratio");
 });
 
-test("baseline: recorded fenced-power product vectors (:574)", async () => {
+test("fenced-power product vectors (Ruby :574 truncates the halves)", async () => {
+  const halves = { Length: "1/2", Time: "1" };
+  assert.deepEqual(exact((await q("m^((1/2))")).times(await q("s"))), halves);
+  assert.deepEqual(exact((await q("m^(1/2)")).times(await q("s"))), halves);
   const rows: Record<string, Record<string, number>> = {
-    "m^((1/2))": { Length: 1, Time: 1 },
-    "m^(1/2)": { Length: 1, Time: 1 },
     "m^-1": { Length: -1, Time: 1 },
     "g^((((3))))": { Mass: 3, Time: 1 },
     "m^((-2))": { Length: -2, Time: 1 },
@@ -361,8 +380,12 @@ test("baseline: recorded fenced-power product vectors (:574)", async () => {
 
 test("baseline: recorded scalar and pure-number rows (:580, :588)", async () => {
   const rows: Array<[string | undefined, Record<string, number>]> = [
-    ["m", { Length: 1 }], ["sqrt(m)", {}], ["m^(1/2)", { Length: 1 }], [undefined, {}],
+    ["m", { Length: 1 }], [undefined, {}],
   ];
+  for (const source of ["sqrt(m)", "m^(1/2)"]) {
+    const result = (await q(source, 4)).times(2);
+    assert.deepEqual([value(result), exact(result)], ["8", { Length: "1/2" }], source);
+  }
   for (const [source, vec] of rows) {
     const result = (await q(source, 4)).times(2);
     assert.deepEqual([value(result), vector(result)], ["8", vec], String(source));

@@ -6,6 +6,7 @@ import { Unitsdb } from "unitsdb";
 import {
   ConversionError,
   dimensionEntries,
+  opaqueRoot,
   toCanonical,
   type Definitions,
 } from "./conversion.js";
@@ -101,15 +102,31 @@ export class Quantity {
   }
 
   /** Base-dimension exponents summed across the expression; undefined when
-   * a unit has no decomposition path (legality then defers to conversion). */
+   * a unit has no decomposition path (legality then defers to conversion)
+   * or when an exponent is not an integer (sqrt(m) is Length^(1/2): see
+   * exactDimensionVector; Ruby's integer truncation is not reproduced). */
   dimensionVector(): Map<string, number> | undefined {
+    const exact = this.exactDimensionVector();
+    if (exact === undefined) return undefined;
+    const vector = new Map<string, number>();
+    for (const [dimension, exponent] of exact) {
+      if (!exponent.isInteger()) return undefined;
+      vector.set(dimension, Number(exponent.toInteger()));
+    }
+    return vector;
+  }
+
+  /** The exact base-dimension exponents (rational for roots and fractional
+   * powers); zero exponents are dropped. undefined when a unit has no
+   * decomposition path. The dimension gates and equals compare this. */
+  exactDimensionVector(): Map<string, Rational> | undefined {
     const list = this.rawDimensionList();
     if (list === undefined) return undefined;
-    const vector = new Map<string, number>();
+    const vector = new Map<string, Rational>();
     for (const entry of list) {
-      vector.set(entry.dimension, (vector.get(entry.dimension) ?? 0) + entry.exponent);
+      vector.set(entry.dimension, (vector.get(entry.dimension) ?? Rational.from(0)).add(entry.exponent));
     }
-    for (const [dimension, exponent] of vector) if (exponent === 0) vector.delete(dimension);
+    for (const [dimension, exponent] of vector) if (exponent.isZero()) vector.delete(dimension);
     return vector;
   }
 
@@ -207,8 +224,8 @@ export class Quantity {
   /** Equal magnitude and dimension vector (Ruby Quantity#==). */
   equals(other: Quantity): boolean {
     if (!this.value.equals(other.value)) return false;
-    const mine = this.dimensionVector();
-    const theirs = other.dimensionVector();
+    const mine = this.exactDimensionVector();
+    const theirs = other.exactDimensionVector();
     if (mine === undefined || theirs === undefined) return mine === theirs;
     return sameVector(mine, theirs);
   }
@@ -224,20 +241,21 @@ export class Quantity {
     return interval ? "interval" : "ratio";
   }
 
-  private rawDimensionList(): Array<{ dimension: string; exponent: number }> | undefined {
+  private rawDimensionList(): Array<{ dimension: string; exponent: Rational }> | undefined {
     if (!this.formula) return [];
-    const units = extractUnits(this.formula.value);
-    const legacy = units2dimensions(units);
-    if (legacy !== undefined) {
-      return legacy.map((entry) => ({
-        dimension: entry.dimension as string,
-        exponent: truncateExponent(entry.exponent),
-      }));
-    }
+    // The canonical decomposition carries every unit power exactly through
+    // derived units (Hz^(1/2) is Time^(-1/2)); the symbol-table path Ruby
+    // uses drops powers on derived units and truncates fractional ones, so
+    // it only answers when no canonical path exists.
     const canonical = dimensionEntries(this.formula);
-    return canonical?.map((entry) => ({
-      dimension: entry.dimension,
-      exponent: Number(entry.exponent.toInteger()),
+    if (canonical !== undefined) {
+      return canonical.map((entry) => ({ dimension: entry.dimension, exponent: entry.exponent }));
+    }
+    if (opaqueRoot(this.formula.value)) return undefined;
+    const legacy = units2dimensions(extractUnits(this.formula.value));
+    return legacy?.map((entry) => ({
+      dimension: entry.dimension as string,
+      exponent: exactExponent(entry.exponent),
     }));
   }
 
@@ -251,8 +269,8 @@ export class Quantity {
   }
 
   private gateDimension(other: Quantity): void {
-    const mine = this.dimensionVector();
-    const theirs = other.dimensionVector();
+    const mine = this.exactDimensionVector();
+    const theirs = other.exactDimensionVector();
     if (mine === undefined || theirs === undefined) return;
     if (sameVector(mine, theirs)) return;
     throw new DimensionMismatchError(
@@ -314,24 +332,30 @@ function describeEntry(value: unknown): string {
   return String(value);
 }
 
-/** Ruby Integer conversion of an exponent (raw_value.to_i / to_i): truncation. */
-function truncateExponent(exponent: unknown): number {
-  if (typeof exponent === "number") return Math.trunc(exponent);
+/** The exact value of a unit power (Number "0.5", fenced "(1/2)", a plain
+ * number): Ruby truncates it with to_i, which makes sqrt(m) dimensionless
+ * and m^(1/2) a length; the algebra keeps the rational. */
+function exactExponent(exponent: unknown): Rational {
+  if (typeof exponent === "number") return Rational.from(exponent);
   if (exponent instanceof Number_ || exponent instanceof Fenced) {
-    const parsed = Number.parseInt(String(exponent.rawValue), 10);
-    return Number.isNaN(parsed) ? 0 : parsed;
+    let text = String(exponent.rawValue).trim();
+    while (text.startsWith("(") && text.endsWith(")")) text = text.slice(1, -1).trim();
+    return Rational.parse(text);
   }
-  return 0;
+  return Rational.from(1);
 }
 
-function sameVector(a: Map<string, number>, b: Map<string, number>): boolean {
+function sameVector(a: Map<string, Rational>, b: Map<string, Rational>): boolean {
   if (a.size !== b.size) return false;
-  for (const [dimension, exponent] of a) if (b.get(dimension) !== exponent) return false;
+  for (const [dimension, exponent] of a) {
+    const other = b.get(dimension);
+    if (other === undefined || !other.equals(exponent)) return false;
+  }
   return true;
 }
 
-function formatVector(vector: Map<string, number>): string {
-  return `{${[...vector].map(([k, v]) => `${JSON.stringify(k)} => ${v}`).join(", ")}}`;
+function formatVector(vector: Map<string, Rational>): string {
+  return `{${[...vector].map(([k, v]) => `${JSON.stringify(k)} => ${v.toString()}`).join(", ")}}`;
 }
 
 /** Ruby Quantity#extract_units: units with sqrt mapped to power 0.5. */

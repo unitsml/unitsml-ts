@@ -529,6 +529,9 @@ export interface CanonicalDimensionEntry {
 /** Dimension-only decomposition through canonical data (Ruby
  * Conversion.dimension_entries); undefined when any unit has no path. */
 export function dimensionEntries(formula: Formula): CanonicalDimensionEntry[] | undefined {
+  // A root over a composite or nested operand (sqrt(m*s), sqrt(sqrt(m)))
+  // has no decomposition here: unknown, never silently dimensionless.
+  if (opaqueRoot(formula.value)) return undefined;
   const entries: CanonicalDimensionEntry[] = [];
   for (const unit of collectUnits(formula.value)) {
     const dims = unitDimensions(
@@ -546,6 +549,15 @@ export function dimensionEntries(formula: Formula): CanonicalDimensionEntry[] | 
     else summed.set(entry.dimension, { ...entry });
   }
   return [...summed.values()];
+}
+
+export function opaqueRoot(value: ModelNode[]): boolean {
+  return value.some((node) => {
+    if (node instanceof Sqrt) return !(node.value instanceof Unit);
+    if (node instanceof Formula) return opaqueRoot(node.value);
+    if (node instanceof Fenced) return opaqueRoot([node.value]);
+    return false;
+  });
 }
 
 function collectUnits(value: ModelNode[]): Unit[] {
