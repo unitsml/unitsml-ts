@@ -1,0 +1,283 @@
+// Focused parity with unitsml-ruby spec/unitsml/quantity_composition_spec.rb
+// (reference: unitsml-ruby 92b0f348 plus the difference-scale fix on
+// claude-b/scalar-difference-scale). Line numbers cite that spec.
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  Dimension,
+  Extender,
+  Formula,
+  IndeterminateResultError,
+  InvalidUnitEntryError,
+  MixedTermsError,
+  Number_,
+  Prefix,
+  Quantity,
+  Rational,
+  ScaleOperationError,
+  Unit,
+  parse,
+  quantityProduct,
+  toXml,
+  type ModelNode,
+  type QuantityScale,
+} from "../dist/index.js";
+
+async function q(unit: string | undefined, value: string | number = 1, scale?: QuantityScale): Promise<Quantity> {
+  return new Quantity(value, unit === undefined ? undefined : await parse(unit), scale);
+}
+
+function leaves(nodes: ModelNode[], out: Array<Unit | Dimension> = []): Array<Unit | Dimension> {
+  for (const node of nodes) {
+    if (node instanceof Unit || node instanceof Dimension) out.push(node);
+    else if (node instanceof Formula) leaves(node.value, out);
+    else if (node && typeof node === "object" && "value" in node && node.value && typeof node.value === "object") {
+      leaves([node.value as ModelNode], out);
+    }
+  }
+  return out;
+}
+
+function power(leaf: Unit | Dimension): string | undefined {
+  const p = leaf.powerNumerator;
+  if (p === undefined) return undefined;
+  return typeof p === "number" ? String(p) : String(p.rawValue);
+}
+
+/** leaf_powers / leaf_shape: [name, raw power] per Unit (or Dimension) leaf. */
+function shape(quantity: Quantity): Array<[string, string | undefined]> {
+  return leaves(quantity.formula?.value ?? []).map((leaf) => [
+    leaf instanceof Unit ? leaf.unitName : leaf.dimensionName,
+    power(leaf),
+  ]);
+}
+
+const vector = (quantity: Quantity) => Object.fromEntries(quantity.dimensionVector() ?? []);
+const value = (quantity: Quantity) => quantity.value.toString();
+
+// --- composition through the builder (spec :23) ---
+
+test("builder: W/m * s composes structurally (:24)", async () => {
+  const result = (await q("W/m", 6)).times(await q("s", 2));
+  assert.equal(value(result), "12");
+  assert.equal(result.normText, "W*m^(-1)*s");
+  assert.deepEqual(shape(result), [["W", undefined], ["m", "-1"], ["s", undefined]]);
+  assert.deepEqual(vector(result), { Length: 1, Mass: 1, Time: -2 });
+});
+
+test("builder: (J/s) / (m/s) (:34)", async () => {
+  const result = (await q("J/s", 6)).dividedBy(await q("m/s", 2));
+  assert.equal(value(result), "3");
+  assert.equal(result.normText, "J*s^(-1)*m^(-1)*s");
+  assert.deepEqual(shape(result), [["J", undefined], ["s", "-1"], ["m", "-1"], ["s", undefined]]);
+  assert.deepEqual(vector(result), { Length: 1, Mass: 1, Time: -2 });
+});
+
+test("builder: simple quotient text and mixed-term rejection (:45, :49)", async () => {
+  assert.equal((await q("m")).dividedBy(await q("s")).normText, "m/s");
+  await assert.rejects(async () => (await q("dim_L")).times(await q("m")), MixedTermsError);
+});
+
+// --- unit entry points (spec :55, the parts with a TS counterpart) ---
+
+test("entry points: a Unit and a Formula construct alike; nil is a pure number (:58, :88)", async () => {
+  const fromUnit = new Quantity(2, new Unit("m"));
+  const fromFormula = await q("m", 2);
+  assert.equal(fromUnit.normText, fromFormula.normText);
+  assert.deepEqual(vector(fromUnit), vector(fromFormula));
+  assert.equal(new Quantity(3).formula, undefined);
+  assert.equal(new Quantity(3, undefined).normText, "3");
+});
+
+test("entry points: a Formula is kept without reparsing (:67)", async () => {
+  const formula = await parse("m");
+  assert.equal(new Quantity(1, formula).formula, formula);
+});
+
+test("entry points: a direct Dimension or another object is a typed :unit error (:106, :258)", () => {
+  for (const bad of [new Dimension("dim_L"), "m", {}]) {
+    assert.throws(
+      () => new Quantity(1, bad as unknown as Formula),
+      (error: unknown) => error instanceof InvalidUnitEntryError && error.field === "unit" && error.value === bad,
+    );
+  }
+});
+
+// --- bare Unit, Dimension and Formula operands (spec :131) ---
+
+test("operands: multiplies and divides by a Unit, keeping the magnitude (:161)", () => {
+  const metre = new Unit("m");
+  const second = new Unit("s");
+  const product = new Quantity(6, metre).times(second);
+  const quotient = new Quantity(6, metre).dividedBy(second);
+  assert.deepEqual([value(product), shape(product)], ["6", [["m", undefined], ["s", undefined]]]);
+  assert.deepEqual([value(quotient), shape(quotient)], ["6", [["m", undefined], ["s", "-1"]]]);
+});
+
+test("operands: multiplies and divides by a Formula, keeping the magnitude (:171)", async () => {
+  const speed = quantityProduct(await parse("m"), await parse("s"), "/") as Formula;
+  const product = (await q("m", 6)).times(speed);
+  const quotient = (await q("m", 6)).dividedBy(speed);
+  assert.deepEqual([value(product), shape(product)], ["6", [["m", undefined], ["m", undefined], ["s", "-1"]]]);
+  assert.deepEqual([value(quotient), shape(quotient)], ["6", [["m", undefined], ["m", "-1"], ["s", undefined]]]);
+});
+
+test("operands: divides a pure number by a Unit (:181)", () => {
+  const result = new Quantity(5).dividedBy(new Unit("s"));
+  assert.deepEqual([value(result), shape(result)], ["5", [["s", "-1"]]]);
+});
+
+test("operands: composes dimension-only operands (:187)", () => {
+  const dimL = new Dimension("dim_L");
+  const formula = quantityProduct(undefined, new Formula([dimL]), "*") as Formula;
+  const result = new Quantity(6, formula).times(dimL);
+  assert.equal(value(result), "6");
+  assert.deepEqual(shape(result), [["dim_L", undefined], ["dim_L", undefined]]);
+});
+
+test("operands: still rejects mixing units and dimensions (:196)", async () => {
+  const dimL = new Dimension("dim_L");
+  const dimensional = new Quantity(2, quantityProduct(undefined, new Formula([dimL]), "*"));
+  await assert.rejects(async () => (await q("m", 6)).dividedBy(dimL), MixedTermsError);
+  assert.throws(() => dimensional.times(new Unit("m")), MixedTermsError);
+});
+
+test("operands: nil, a String, an Extender and plain objects are typed :operand errors (:206)", async () => {
+  const base = await q("m", 6);
+  for (const bad of [null, undefined, "s", new Extender("*"), {}, Object.create(null)]) {
+    for (const op of ["times", "dividedBy"] as const) {
+      assert.throws(
+        () => base[op](bad as unknown as Quantity),
+        (error: unknown) => error instanceof InvalidUnitEntryError && error.field === "operand" && error.value === bad,
+        `${op}(${String(typeof bad)})`,
+      );
+    }
+  }
+});
+
+test("operands: Quantity operands keep their scale gates (:219)", async () => {
+  const interval = await q("K", 10, "interval");
+  const speed = quantityProduct(await parse("m"), await parse("s"), "/") as Formula;
+  assert.equal(value((await q("m", 2)).times(await q("s", 3))), "6");
+  assert.throws(() => interval.times(new Unit("s")), ScaleOperationError);
+  assert.throws(() => interval.dividedBy(speed), ScaleOperationError);
+});
+
+test("operands: zero dividend is fine, zero divisor indeterminate (:229)", async () => {
+  assert.equal(value((await q("m", 0)).dividedBy(new Unit("s"))), "0");
+  await assert.rejects(async () => (await q("m")).dividedBy(await q("s", 0)), IndeterminateResultError);
+});
+
+test("operands: the result has its own tree and leaves operands untouched (:240, :248)", async () => {
+  const metre = new Unit("m");
+  const speed = quantityProduct(await parse("m"), await parse("s"), "/") as Formula;
+  const quantity = await q("m", 6);
+  const snapshot = () => [toXml(quantity.formula!), toXml(speed), JSON.stringify(leaves(speed.value).map(power)), metre.unitName, metre.powerNumerator];
+  const before = snapshot();
+  for (const result of [quantity.times(metre), quantity.dividedBy(speed)]) {
+    assert.notEqual(result.formula, speed);
+    assert.notEqual(result.formula, quantity.formula);
+    const first = result.formula!.value[0] as Unit;
+    first.powerNumerator = new Number_("9");
+    result.formula!.value.length = 0;
+  }
+  assert.deepEqual(snapshot(), before);
+});
+
+// --- gates (spec :264) ---
+
+test("gates: scalar and quantity scale gates on interval quantities (:265)", async () => {
+  const interval = await q("K", 10, "interval");
+  assert.throws(() => interval.times(2), ScaleOperationError);
+  assert.throws(() => interval.dividedBy(2), ScaleOperationError);
+  assert.throws(() => interval.times(new Quantity(1, new Unit("s"))), ScaleOperationError);
+  assert.throws(() => new Quantity(1, new Unit("s")).dividedBy(interval), ScaleOperationError);
+});
+
+test("gates: zero Numeric and zero Quantity divisors (:276)", async () => {
+  const m = await q("m");
+  assert.throws(() => m.dividedBy(0), IndeterminateResultError);
+  assert.throws(() => m.dividedBy(new Quantity(0, new Unit("s"))), IndeterminateResultError);
+  assert.throws(() => m.dividedBy(new Quantity(0)), IndeterminateResultError);
+});
+
+test("gates: + and - take only quantities (:285)", async () => {
+  const m = await q("m");
+  assert.throws(() => m.minus(1 as unknown as Quantity), TypeError);
+  assert.throws(() => m.plus(new Unit("m") as unknown as Quantity), TypeError);
+});
+
+test("gates: difference typing survives scaling and conversion (:291, :300)", async () => {
+  const a = await q("K", 10, "interval");
+  const b = await q("K", 2, "interval");
+  assert.equal(a.minus(b).scale, "difference");
+  assert.equal(value(a.minus(b).times(2)), "16");
+
+  const difference = (await q("degC", 20)).minus(await q("degC", 15));
+  const doubled = difference.times(2);
+  const halved = difference.dividedBy(2);
+  assert.deepEqual([doubled.scale, halved.scale], ["difference", "difference"]);
+  assert.equal(value(await doubled.convertTo("K")), "10");
+  assert.ok((await halved.convertTo("K")).value.equals(Rational.from("5/2")));
+  const inKelvin = await difference.convertTo("K");
+  assert.equal(inKelvin.scale, "difference");
+  assert.equal(value(await inKelvin.times(3).convertTo("degC")), "15");
+  assert.equal((await q("m", 3)).times(2).scale, "ratio");
+});
+
+// --- pure numbers (spec :318) ---
+
+test("pure numbers: scaling, either-side composition, lone divisor (:319-:345)", async () => {
+  const scaled = new Quantity(4).times(2);
+  assert.deepEqual([value(scaled), vector(scaled), scaled.formula], ["8", {}, undefined]);
+  assert.deepEqual(vector(new Quantity(5).dividedBy(await q("s", 2))), { Time: -1 });
+  assert.deepEqual(vector((await q("s", 4)).dividedBy(new Quantity(2))), { Time: 1 });
+  assert.deepEqual(vector(new Quantity(4).times(await q("s"))), { Time: 1 });
+  assert.equal((await q("s")).times(new Quantity(4)).normText, "s");
+  const inverted = new Quantity(1).dividedBy(await q("s"));
+  assert.ok(inverted.formula!.value[0] instanceof Unit);
+  assert.equal(inverted.normText, "s^(-1)");
+  assert.equal(new Quantity(4).times(new Quantity(2)).formula, undefined);
+  assert.equal(value(new Quantity(4).dividedBy(new Quantity(2))), "2");
+  assert.deepEqual(vector((await q("m", 6)).dividedBy(await q("m", 2))), {});
+});
+
+// --- chained arithmetic (spec :350) ---
+
+test("chained: formulas carry through +, -, * and / (:351)", async () => {
+  const speed = (await q("m", 10)).dividedBy(await q("s", 2));
+  const summed = speed.plus((await q("m", 3)).dividedBy(await q("s", 1))).minus((await q("m", 2)).dividedBy(await q("s", 1)));
+  const result = summed.times(await q("s", 2)).dividedBy(2);
+  assert.equal(value(result), "6");
+  assert.deepEqual(vector(result), { Length: 1 });
+  assert.equal(result.normText, "m*s^(-1)*s");
+});
+
+// --- operand isolation (spec :362) ---
+
+test("isolation: composition does not mutate either operand (:363)", async () => {
+  const a = await q("km^2", 4);
+  const b = await q("s^((-2))", 2);
+  const snap = () => [toXml(a.formula!), toXml(b.formula!), a.normText, b.normText];
+  const before = snap();
+  for (const r of [a.times(b), a.dividedBy(b), b.dividedBy(a)]) r.dimensionVector();
+  assert.deepEqual(snap(), before);
+});
+
+test("isolation: scalar and additive results get independent trees (:373, :390)", async () => {
+  const a = await q("km^2", 4);
+  const b = await q("km^2", 2);
+  const leaf = a.formula!.value[0] as Unit;
+  for (const result of [a.times(2), a.dividedBy(2), a.plus(b), a.minus(b)]) {
+    assert.notEqual(result.formula, a.formula);
+    assert.equal(result.normText, "km^2");
+    const first = result.formula!.value[0] as Unit;
+    assert.notEqual(first, leaf);
+    first.powerNumerator = new Number_("9");
+    first.prefix = new Prefix("m");
+    result.formula!.normText = "changed";
+    result.formula!.value.length = 0;
+  }
+  assert.equal(a.formula!.value[0], leaf);
+  assert.deepEqual([power(leaf), leaf.prefix?.prefixName, a.normText], ["2", "k", "km^2"]);
+});

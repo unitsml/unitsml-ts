@@ -24,9 +24,11 @@ export {
   DimensionMismatchError,
   ScaleOperationError,
   IndeterminateResultError,
+  InvalidUnitEntryError,
+  quantityOperand,
 } from "./quantity.js";
-export { quantityProduct, MixedTermsError } from "./compose.js";
-export type { QuantityScale, RationalInput } from "./quantity.js";
+export { copyFormula, quantityProduct, MixedTermsError } from "./compose.js";
+export type { QuantityOperand, QuantityScale, RationalInput, ScalarInput } from "./quantity.js";
 export { stringToHtmlEntity, htmlEntityToUnicode } from "./mathml.js";
 
 import { Parser } from "./parser.js";

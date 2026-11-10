@@ -114,6 +114,15 @@ function normLeavesText(terms: ModelNode[]): string {
   return leaves.join("*");
 }
 
+/** Builder.copy_formula: an independent tree (leaves rebuilt, texts and
+ * explicit values copied) so results never share nodes with operands. */
+export function copyFormula(formula: Formula | undefined): Formula | undefined {
+  if (formula === undefined) return undefined;
+  const copy = mapLeaves(formula, false) as Formula;
+  copy.explicitValue = formula.explicitValue === undefined ? undefined : { ...formula.explicitValue };
+  return copy;
+}
+
 /** Units and dimensions cannot share one expression (Ruby MixedTermsError). */
 export class MixedTermsError extends Error {
   constructor() {
