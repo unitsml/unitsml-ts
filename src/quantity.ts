@@ -1,8 +1,7 @@
 // A quantity: an exact magnitude plus a parsed unit expression — the
 // conversion/difference subset of unitsml-ruby Unitsml::Quantity
-// (unitsml-ruby#82 R-A3/R-A4). Unit composition of quantity products and
-// quotients (Ruby Quantity#* and #/ through Compose::Builder) is not part of
-// this port yet; scaling by a number is.
+// (unitsml-ruby#82 R-A1/A2/A3/A4): exact arithmetic, structural unit
+// composition (Compose::Builder), scale and dimension gates.
 import { Unitsdb } from "unitsdb";
 import {
   ConversionError,
@@ -10,6 +9,7 @@ import {
   toCanonical,
   type Definitions,
 } from "./conversion.js";
+import { quantityProduct } from "./compose.js";
 import { Fenced, Formula, Number_, Sqrt, Unit, type ModelNode } from "./model.js";
 import { Parser } from "./parser.js";
 import { Rational } from "./rational.js";
@@ -28,6 +28,14 @@ export class ScaleOperationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ScaleOperationError";
+  }
+}
+
+/** unitsml-ruby Errors::IndeterminateResultError. */
+export class IndeterminateResultError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IndeterminateResultError";
   }
 }
 
@@ -79,6 +87,37 @@ export class Quantity {
   minus(other: Quantity): Quantity {
     this.gateDimension(other);
     return new Quantity(this.value.sub(other.value), this.formula, "difference");
+  }
+
+  /** Ruby Quantity#*: a number scales (gated on interval scales); a
+   * quantity multiplies values and composes units structurally. */
+  times(other: Quantity | RationalInput): Quantity {
+    if (!(other instanceof Quantity)) return this.scaledBy(other);
+    this.scaleRatioGate(other, "multiplication");
+    return new Quantity(this.value.mul(other.value), quantityProduct(this.formula, other.formula, "*"));
+  }
+
+  /** Ruby Quantity#/: division by zero is an IndeterminateResultError. */
+  dividedBy(other: Quantity | RationalInput): Quantity {
+    if (!(other instanceof Quantity)) {
+      const divisor = Rational.from(other);
+      if (divisor.isZero()) {
+        throw new IndeterminateResultError("division by a zero quantity is indeterminate");
+      }
+      this.gateScaling();
+      // A scaled difference stays a difference (see scaledBy).
+      return new Quantity(this.value.div(divisor), this.formula, this.scale);
+    }
+    this.scaleRatioGate(other, "division");
+    if (other.value.isZero()) {
+      throw new IndeterminateResultError("division by a zero quantity is indeterminate");
+    }
+    return new Quantity(this.value.div(other.value), quantityProduct(this.formula, other.formula, "/"));
+  }
+
+  /** The normalized unit expression; the value for pure numbers. */
+  get normText(): string {
+    return this.formula?.normText ?? this.value.toString();
   }
 
   /** Scaling by a number: legal on ratio scales and differences, a
@@ -158,6 +197,13 @@ export class Quantity {
     if (sameVector(mine, theirs)) return;
     throw new DimensionMismatchError(
       `dimension mismatch: ${formatVector(mine)} vs ${formatVector(theirs)}`,
+    );
+  }
+
+  private scaleRatioGate(other: Quantity, operation: string): void {
+    if (this.scale !== "interval" && other.scale !== "interval") return;
+    throw new ScaleOperationError(
+      `${operation} is not legal between ${this.scale} and ${other.scale} scale quantities`,
     );
   }
 

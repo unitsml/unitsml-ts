@@ -189,6 +189,18 @@ function map(node: PlainTree): ModelNode | PlainTree {
       return new Prefix(text("prefix"));
     case "prefix unit":
       return new Unit(text("unit"), undefined, new Prefix(text("prefix")));
+    // Implicit (juxtaposed) products — Ruby Parg::TreeMapper: kWh, Wh, sqrt(Hz)m.
+    case "prefix sequence unit":
+      return new Formula([
+        new Unit(text("unit"), undefined, new Prefix(text("prefix"))),
+        child("sequence"),
+      ]);
+    case "sequence sqrt":
+      return new Formula([new Sqrt(child("sqrt")), child("sequence")]);
+    case "sequence unit":
+      return new Formula([new Unit(text("unit")), child("sequence")]);
+    case "implicit_extended sequence":
+      return new Formula([child("implicit_extended"), child("sequence")]);
     case "sqrt":
       return new Sqrt(child("sqrt"));
     case "unit":

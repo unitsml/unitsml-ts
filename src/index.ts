@@ -23,7 +23,9 @@ export {
   Quantity,
   DimensionMismatchError,
   ScaleOperationError,
+  IndeterminateResultError,
 } from "./quantity.js";
+export { quantityProduct, MixedTermsError } from "./compose.js";
 export type { QuantityScale, RationalInput } from "./quantity.js";
 export { stringToHtmlEntity, htmlEntityToUnicode } from "./mathml.js";
 
