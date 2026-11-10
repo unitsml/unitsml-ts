@@ -14,8 +14,9 @@ import { Quantity } from "../dist/index.js";
 
 const FILE = new URL("./fixtures/f40/unitsml-quantities.json", import.meta.url);
 const DIGEST = "2cacb0b5b3c66f7c8a960b73e638b892afb86dd44ee4838371f132c2c5b60218";
-const bytes = readFileSync(FILE);
-const corpus = JSON.parse(bytes.toString("utf8"));
+// The digest is over the LF-normalized text, so a CRLF checkout still pins.
+const text = readFileSync(FILE, "utf8").replace(/\r\n/g, "\n");
+const corpus = JSON.parse(text);
 
 // Typed or unsupported differences from the Ruby 92b0f348 producer. Each
 // names the TypeScript outcome it requires.
@@ -101,7 +102,7 @@ const sorted = (o: any): any =>
     : o;
 
 test("F40 corpus digest and counts are the frozen input", () => {
-  assert.equal(createHash("sha256").update(bytes).digest("hex"), DIGEST);
+  assert.equal(createHash("sha256").update(text).digest("hex"), DIGEST);
   assert.equal(corpus.cases.length, corpus.counts.cases);
   assert.equal(corpus.producer_source.commit, "92b0f3481cd90e8a7b50ba9bd729363bec150a21");
 });
