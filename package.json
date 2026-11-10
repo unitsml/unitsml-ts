@@ -9,11 +9,12 @@
     "build": "tsc -p tsconfig.json",
     "test": "node --test",
     "replay": "node scripts/replay-oracle.ts",
-    "replay:conversions": "node scripts/replay-conversions.ts"
+    "replay:conversions": "node scripts/replay-conversions.ts",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "asciiunits": "^0.1.0",
-    "unitsdb": "^0.1.0"
+    "unitsdb": "git+https://github.com/suleman-uzair/unitsdb-ts.git#22d026b81e80a15ad5b3fa253cfcf23407f18a13"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
