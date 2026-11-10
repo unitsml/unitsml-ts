@@ -10,7 +10,8 @@
     "test": "node --test",
     "replay": "node scripts/replay-oracle.ts",
     "replay:conversions": "node scripts/replay-conversions.ts",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "smoke:browser": "node scripts/smoke-browser.mjs"
   },
   "dependencies": {
     "asciiunits": "^0.1.0",

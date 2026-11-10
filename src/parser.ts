@@ -90,11 +90,26 @@ export function mapTree(tree: AsciiUnitsTree): ModelNode | PlainTree {
   return map(normalize(tree) as PlainTree);
 }
 
+// The pinned asciiunits artifact is grammar `edition 2`: uncaptured rule
+// references are named in the tree. These structural names (bare fences,
+// the bare hyphen suffix arm, the zero-width end_guard) carry no model
+// content; unitsml-ruby's normalize pass and asciiunits' own mapper drop
+// them, leaving the edition-1 tree. Edition-1 trees never carry them.
+const EDITION2_STRUCTURAL_NAMES: ReadonlySet<string> = new Set([
+  "end_guard",
+  "lparen",
+  "rparen",
+  "hyphen",
+]);
+
 function normalize(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(normalize);
   if (node !== null && typeof node === "object") {
     const out: PlainTree = {};
-    for (const [key, value] of Object.entries(node)) out[key] = normalize(value);
+    for (const [key, value] of Object.entries(node)) {
+      if (EDITION2_STRUCTURAL_NAMES.has(key)) continue;
+      out[key] = normalize(value);
+    }
     return out;
   }
   return node;
