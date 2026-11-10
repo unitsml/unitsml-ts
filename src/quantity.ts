@@ -114,18 +114,26 @@ export class Quantity {
   }
 
   /** R-A4: sums are legal on ratio and interval scales; only the dimension
-   * must match. */
+   * must match. An operand in another unit is converted into this unit
+   * first (1 km + 1 m is 1001/1000 km, not Ruby's unchecked 2 km). The sum
+   * of two differences is a difference; adding a difference to an absolute
+   * value leaves it absolute. */
   plus(other: Quantity): Quantity {
     quantityKind(other);
     this.gateDimension(other);
-    return new Quantity(this.value.add(other.value), copyFormula(this.formula));
+    const scale = this.scale === "difference" && other.scale === "difference" ? "difference" : undefined;
+    return new Quantity(this.value.add(this.alignedValue(other)), copyFormula(this.formula), scale);
   }
 
-  /** A difference is difference-typed: 20 degC - 15 degC converts to 5 K. */
+  /** A difference is difference-typed: 20 degC - 15 degC converts to 5 K.
+   * Subtracting a difference from an absolute value leaves it absolute
+   * (20 degC - 5 K of difference is 15 degC, converting to 288.15 K). The
+   * operand is converted into this unit first, as for plus. */
   minus(other: Quantity): Quantity {
     quantityKind(other);
     this.gateDimension(other);
-    return new Quantity(this.value.sub(other.value), copyFormula(this.formula), "difference");
+    const scale = other.scale === "difference" && this.scale !== "difference" ? undefined : "difference";
+    return new Quantity(this.value.sub(this.alignedValue(other)), copyFormula(this.formula), scale);
   }
 
   /** Ruby Quantity#*: a number scales (gated on interval scales); a
@@ -231,6 +239,15 @@ export class Quantity {
       dimension: entry.dimension,
       exponent: Number(entry.exponent.toInteger()),
     }));
+  }
+
+  /** The other operand's magnitude in this quantity's unit: unchanged for
+   * the same normalized unit, otherwise an exact conversion keeping the
+   * operand's own scale typing (a ConversionError when no path exists). */
+  private alignedValue(other: Quantity): Rational {
+    if (this.formula === undefined || other.formula === undefined) return other.value;
+    if (this.formula.normText === other.formula.normText) return other.value;
+    return other.convertToFormula(this.formula).value;
   }
 
   private gateDimension(other: Quantity): void {
