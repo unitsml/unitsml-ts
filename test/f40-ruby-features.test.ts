@@ -22,6 +22,7 @@ import {
   Register,
   Unitsdb,
   currentRegister,
+  quantityXml,
   withRegister,
 } from "../dist/index.js";
 
@@ -206,4 +207,41 @@ test("primaryFor refuses a register defect instead of picking by position", () =
   );
   assert.equal(QuantityKind.primaryFor({ identifiers: ids, quantity_references: [{ id: "NISTq1" }] })!.id, "NISTq1");
   assert.equal(QuantityKind.primaryFor({ identifiers: ids, quantity_references: [] }), undefined);
+});
+
+// Source-reference cases from unitsml-ruby c4821ee
+// (spec/unitsml/quantity_kind_spec.rb "never promotes a sole reference marked
+// primary: false" and the three cases after it). Presence and absence of the
+// flag are distinct: absent keeps the sole-reference inference, false never
+// promotes.
+test("c4821ee: a sole reference marked primary: false is never promoted", () => {
+  assert.throws(
+    () => QuantityKind.primaryFor({ identifiers: [], quantity_references: [{ id: "NISTq1", primary: false }] }),
+    { name: "PrimaryQuantityError", message: /primary: false/ },
+  );
+});
+
+test("c4821ee: a sole reference whose flag is absent is taken (null counts as absent)", () => {
+  const absent = { id: "NISTq1" };
+  assert.equal("primary" in absent, false);
+  assert.equal(QuantityKind.primaryFor({ identifiers: [], quantity_references: [absent] })!.id, "NISTq1");
+  assert.equal(QuantityKind.primaryFor({ identifiers: [], quantity_references: [{ id: "NISTq1", primary: null }] })!.id, "NISTq1");
+});
+
+test("c4821ee: the true flag is selected among explicit false siblings", () => {
+  const refs = [["NISTq1", false], ["NISTq48", true], ["NISTq95", false]].map(([id, primary]) => ({ id: id as string, primary: primary as boolean }));
+  assert.equal(QuantityKind.primaryFor({ identifiers: [], quantity_references: refs })!.id, "NISTq48");
+});
+
+test("c4821ee: render selection still reads the first reference, not the primary", () => {
+  const record = Unitsdb.findUnitBySymbolId("J")!;
+  const first = record.quantity_references![0].id;
+  assert.notEqual(first, QuantityKind.primaryFor(record)!.id);
+  // the render helpers (quantityXml / unitDimensionId) are untouched: a
+  // multi-reference unit renders no quantity without an explicit instance,
+  // and a sole-reference unit renders its only reference
+  assert.equal(quantityXml("J", undefined), undefined);
+  const kilogram = Unitsdb.findUnitBySymbolId("kg")!;
+  assert.equal(kilogram.quantity_references!.length, 1);
+  assert.ok(quantityXml("kg", undefined)!.includes(kilogram.quantity_references![0].id));
 });

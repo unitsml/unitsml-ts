@@ -94,9 +94,16 @@ export class QuantityKind {
    * it explicitly: "True for the primary quantity of this unit ... Consumers
    * select this reference instead of positional order." (unitsdb
    * schemas/units-schema.yaml:147-149). Selection reads the flag only, so
-   * the result does not depend on the order of quantity_references. A
-   * single reference is the unit's only quantity. Several references with
-   * no flag, or more than one flag, is a register defect and fails. */
+   * the result does not depend on the order of quantity_references.
+   *
+   * A sole reference with the flag ABSENT is the unit's quantity: the
+   * schema leaves the field optional, and the release that introduced it
+   * flags only multi-reference units ("96 multi-reference units flagged,
+   * exactly one primary each", unitsdb 6f3d156, schema 2.2.0). That
+   * inference is not stated in the schema text itself. A reference marked
+   * primary: false is never promoted, even when it is the only one
+   * (unitsml-ruby c4821ee). Several references with no true flag, or more
+   * than one, is a register defect and fails explicitly. */
   static primaryFor(unitRecord: PrimaryUnitRecord | undefined | null): QuantityKind | undefined {
     const refs = unitRecord?.quantity_references ?? [];
     if (refs.length === 0) return undefined;
@@ -105,12 +112,7 @@ export class QuantityKind {
     if (flagged.length === 1) {
       chosen = flagged[0];
     } else if (flagged.length === 0) {
-      if (refs.length > 1) {
-        throw new PrimaryQuantityError(
-          `unit ${unitLabel(unitRecord!)} has ${refs.length} quantity references and none is marked primary`,
-        );
-      }
-      chosen = refs[0];
+      chosen = soleUnflagged(unitRecord!, refs);
     } else {
       throw new PrimaryQuantityError(
         `unit ${unitLabel(unitRecord!)} marks ${flagged.length} quantity references primary`,
@@ -151,6 +153,22 @@ export class QuantityKind {
   toString(): string {
     return String(this.id);
   }
+}
+
+/** The only reference, taken only when its flag is absent (undefined or
+ * null, Ruby nil); an explicit primary: false is never promoted. */
+function soleUnflagged(
+  unitRecord: PrimaryUnitRecord,
+  refs: Array<{ id: string; primary?: boolean | null }>,
+): { id: string } {
+  if (refs.length > 1) {
+    throw new PrimaryQuantityError(
+      `unit ${unitLabel(unitRecord)} has ${refs.length} quantity references and none is marked primary`,
+    );
+  }
+  const [sole] = refs;
+  if (sole.primary === undefined || sole.primary === null) return sole;
+  throw new PrimaryQuantityError(`unit ${unitLabel(unitRecord)} marks its only quantity reference primary: false`);
 }
 
 function unitLabel(record: PrimaryUnitRecord): string {
