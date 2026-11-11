@@ -11,8 +11,10 @@ import {
   type Definitions,
 } from "./conversion.js";
 import { copyFormula, quantityProduct } from "./compose.js";
-import { Dimension, Fenced, Formula, Number_, Sqrt, Unit, type ModelNode } from "./model.js";
+import { Dimension, Extender, Fenced, Formula, Number_, Sqrt, Unit, type ModelNode } from "./model.js";
 import { Parser } from "./parser.js";
+import { QuantityKind, QuantityKindMismatchError, UnknownQuantityKindError, type QuantityKindInput } from "./quantity-kind.js";
+import { currentRegister } from "./register-scope.js";
 import { Rational } from "./rational.js";
 import { DIMS_VECTOR, dimId, units2dimensions } from "./utility.js";
 
@@ -67,23 +69,50 @@ export type ScalarInput = Rational | number | bigint;
 /** A bare Unit, Dimension or Formula composes as a magnitude-1 quantity. */
 export type QuantityOperand = Quantity | Unit | Dimension | Formula;
 
+/** A quantity kind source: a QuantityKind, a UnitsDB quantity identifier or
+ * name, or QuantityKind.PRIMARY. */
+export type QuantityKindSource = QuantityKindInput | typeof QuantityKind.PRIMARY | null;
+
 export class Quantity {
   readonly value: Rational;
   readonly formula: Formula | undefined;
   readonly scale: QuantityScale;
+  /** An optional data-declared quantity kind (unitsml-ruby Quantity#kind).
+   * Untyped quantities (undefined) keep the dimension-only gating. */
+  readonly kind: QuantityKind | undefined;
 
   /** formula undefined is a pure number; a Unit is wrapped as a one-term
    * formula (Ruby unit: Unit). scale defaults to the scale derived from
-   * the units' unitsdb scale_reference. */
-  constructor(value: RationalInput, formula?: Formula | Unit, scale?: QuantityScale) {
+   * the units' unitsdb scale_reference. kind is a UnitsDB quantity
+   * identifier or name, a QuantityKind, or QuantityKind.PRIMARY for the
+   * primary quantity of a single unit; its dimension must match the unit's. */
+  constructor(
+    value: RationalInput,
+    formula?: Formula | Unit,
+    scale?: QuantityScale,
+    kind?: QuantityKindSource,
+  ) {
     this.value = Rational.from(value);
     this.formula = buildFormula(formula);
     this.scale = scale ?? this.derivedScale();
+    this.kind = this.resolveKind(kind);
   }
 
   /** Parse unitExpression (an AsciiUnits expression) and build the quantity. */
-  static async parse(value: RationalInput, unitExpression: string): Promise<Quantity> {
-    return new Quantity(value, await new Parser(unitExpression).parse());
+  static async parse(
+    value: RationalInput,
+    unitExpression: string,
+    options: { scale?: QuantityScale; kind?: QuantityKindSource } = {},
+  ): Promise<Quantity> {
+    return new Quantity(value, await new Parser(unitExpression).parse(), options.scale, options.kind);
+  }
+
+  /** The primary quantity of this quantity's unit, selected by the UnitsDB
+   * primary flag (never positional order); undefined for pure numbers and
+   * composite expressions, which name no single unit record. */
+  primaryKind(): QuantityKind | undefined {
+    const record = this.singleUnitRecord();
+    return record ? QuantityKind.primaryFor(record as never) : undefined;
   }
 
   /** Canonical dimension identity (Ruby Quantity#dimension_id): the
@@ -137,9 +166,10 @@ export class Quantity {
    * value leaves it absolute. */
   plus(other: Quantity): Quantity {
     quantityKind(other);
+    this.gateKind(other);
     this.gateDimension(other);
     const scale = this.scale === "difference" && other.scale === "difference" ? "difference" : undefined;
-    return new Quantity(this.value.add(this.alignedValue(other)), copyFormula(this.formula), scale);
+    return new Quantity(this.value.add(this.alignedValue(other)), copyFormula(this.formula), scale, this.kind ?? other.kind);
   }
 
   /** A difference is difference-typed: 20 degC - 15 degC converts to 5 K.
@@ -148,9 +178,10 @@ export class Quantity {
    * operand is converted into this unit first, as for plus. */
   minus(other: Quantity): Quantity {
     quantityKind(other);
+    this.gateKind(other);
     this.gateDimension(other);
     const scale = other.scale === "difference" && this.scale !== "difference" ? undefined : "difference";
-    return new Quantity(this.value.sub(this.alignedValue(other)), copyFormula(this.formula), scale);
+    return new Quantity(this.value.sub(this.alignedValue(other)), copyFormula(this.formula), scale, this.kind ?? other.kind);
   }
 
   /** Ruby Quantity#*: a number scales (gated on interval scales); a
@@ -172,7 +203,7 @@ export class Quantity {
       }
       this.gateScaling();
       // A scaled difference stays a difference (see scaledBy).
-      return new Quantity(this.value.div(divisor), copyFormula(this.formula), this.scale);
+      return new Quantity(this.value.div(divisor), copyFormula(this.formula), this.scale, this.kind);
     }
     const operand = quantityOperand(other);
     this.scaleRatioGate(operand, "division");
@@ -191,7 +222,7 @@ export class Quantity {
    * ScaleOperationError on an absolute interval-scale value. */
   scaledBy(number: RationalInput): Quantity {
     this.gateScaling();
-    return new Quantity(this.value.mul(Rational.from(number)), copyFormula(this.formula), this.scale);
+    return new Quantity(this.value.mul(Rational.from(number)), copyFormula(this.formula), this.scale, this.kind);
   }
 
   /** R-A3: convert to another dimension-compatible unit through unitsdb
@@ -218,12 +249,14 @@ export class Quantity {
         ? this.value.mul(src.factor).div(dst.factor)
         : this.value.mul(src.factor).add(src.offset).sub(dst.offset).div(dst.factor);
     // a converted difference is still a difference
-    return new Quantity(converted, targetFormula, this.scale === "difference" ? "difference" : undefined);
+    return new Quantity(converted, targetFormula, this.scale === "difference" ? "difference" : undefined, this.kind);
   }
 
-  /** Equal magnitude and dimension vector (Ruby Quantity#==). */
+  /** Equal magnitude and dimension vector, and compatible kinds (Ruby
+   * Quantity#==). */
   equals(other: Quantity): boolean {
     if (!this.value.equals(other.value)) return false;
+    if (!this.kindsCompatible(other)) return false;
     const mine = this.exactDimensionVector();
     const theirs = other.exactDimensionVector();
     if (mine === undefined || theirs === undefined) return mine === theirs;
@@ -268,9 +301,76 @@ export class Quantity {
     return other.convertToFormula(this.formula).value;
   }
 
+  /** Ruby quantity_kind!: both typed operands must be the same quantity or
+   * share a declared equivalence class. */
+  private gateKind(other: Quantity): void {
+    if (this.kindsCompatible(other)) return;
+    throw new QuantityKindMismatchError(
+      `${this.kind!.id} (${this.kind!.name}) and ${other.kind!.id} (${other.kind!.name}) are not ` +
+        "interchangeable: no shared equivalence class",
+    );
+  }
+
+  /** Both typed: same quantity or same declared equivalence class. An
+   * untyped operand keeps the dimension-only gating. */
+  private kindsCompatible(other: Quantity): boolean {
+    return this.kind === undefined || other.kind === undefined || this.kind.compatible(other.kind);
+  }
+
+  private resolveKind(source: QuantityKindSource | undefined): QuantityKind | undefined {
+    if (source === undefined || source === null) return undefined;
+    let resolved: QuantityKind;
+    if (source === QuantityKind.PRIMARY) {
+      const primary = this.primaryKind();
+      if (!primary) {
+        throw new UnknownQuantityKindError(
+          `${JSON.stringify(this.normText)} names no single unit with a primary quantity`,
+        );
+      }
+      resolved = primary;
+    } else {
+      resolved = QuantityKind.resolve(source);
+    }
+    const ours = this.dimensionId();
+    const theirs = resolved.dimensionId;
+    if (ours !== undefined && theirs !== undefined && ours !== theirs) {
+      throw new DimensionMismatchError(
+        `quantity kind ${resolved.id} has dimension ${theirs}, the unit ${JSON.stringify(this.normText)} has ${ours}`,
+      );
+    }
+    return resolved;
+  }
+
+  /** The UnitsDB record of a formula that is one unit at power 1 (a prefix
+   * is allowed: km is still a length unit). */
+  private singleUnitRecord(): unknown {
+    if (!this.formula) return undefined;
+    const terms = this.formula.value.filter((term) => !(term instanceof Extender));
+    if (terms.length !== 1 || !(terms[0] instanceof Unit)) return undefined;
+    const unit = terms[0];
+    const power = unit.powerNumerator;
+    if (power !== undefined && power !== null) {
+      const text = typeof power === "number" ? String(power) : String(power.rawValue);
+      if (text !== "1") return undefined;
+    }
+    return unit.instance;
+  }
+
+  /** The exact dimension vector, or, for a unit without a decomposition
+   * path, the dimensions an active caller register declares for it. A
+   * register makes such a unit convertible, so it must also make it
+   * dimension-checked: otherwise 2 cwt (US) + 3 m would succeed. */
+  private gatingVector(): Map<string, Rational> | undefined {
+    const vector = this.exactDimensionVector();
+    if (vector !== undefined) return vector;
+    const record = this.singleUnitRecord();
+    if (!record) return undefined;
+    return currentRegister()?.entryFor(record)?.vector;
+  }
+
   private gateDimension(other: Quantity): void {
-    const mine = this.exactDimensionVector();
-    const theirs = other.exactDimensionVector();
+    const mine = this.gatingVector();
+    const theirs = other.gatingVector();
     if (mine === undefined || theirs === undefined) return;
     if (sameVector(mine, theirs)) return;
     throw new DimensionMismatchError(

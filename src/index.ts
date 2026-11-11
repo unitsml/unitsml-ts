@@ -6,6 +6,7 @@ export { toXml } from "./render.js";
 export { Rational } from "./rational.js";
 export {
   ConversionError,
+  InexactPowerError,
   ConversionDefinition,
   parseConversionXml,
   lexicalDecimal,
@@ -28,7 +29,22 @@ export {
   quantityOperand,
 } from "./quantity.js";
 export { copyFormula, quantityProduct, MixedTermsError } from "./compose.js";
-export type { QuantityOperand, QuantityScale, RationalInput, ScalarInput } from "./quantity.js";
+export {
+  QuantityKind,
+  QuantityKindMismatchError,
+  UnknownQuantityKindError,
+  PrimaryQuantityError,
+} from "./quantity-kind.js";
+export type { QuantityKindInput, PrimaryUnitRecord } from "./quantity-kind.js";
+export {
+  Register,
+  withRegister,
+  InvalidUnitRegisterError,
+  UnknownUnitError,
+} from "./register.js";
+export type { UnitRegisterEntryInput } from "./register.js";
+export { currentRegister } from "./register-scope.js";
+export type { QuantityOperand, QuantityScale, RationalInput, ScalarInput, QuantityKindSource } from "./quantity.js";
 export { stringToHtmlEntity, htmlEntityToUnicode } from "./mathml.js";
 
 import { Parser } from "./parser.js";

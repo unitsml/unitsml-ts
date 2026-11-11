@@ -45,6 +45,32 @@ yet. The data comes from the `unitsdb` package: canonical conversion,
 scale and reference-URI fields need a unitsdb release carrying the schema
 2.2.0 projection.
 
+Quantities can carry a data-declared kind, a UnitsDB quantity. Sums and
+differences of two typed quantities need the same quantity or a shared
+`equivalence_class`, so work plus heat is allowed but torque plus energy
+raises `QuantityKindMismatchError`, although both have the same dimension.
+Untyped quantities keep the dimension-only check. `QuantityKind.primaryFor`
+picks a unit's primary quantity from the UnitsDB `primary` flag, never from
+the order of its references.
+
+A caller register supplies factors and affine offsets for units that
+UnitsDB cannot convert. `withRegister` validates the entries first (exact
+decimal or rational strings, a positive factor, dimensions matching the
+unit's, agreement with UnitsDB canonical data within 1e-9) and applies them
+only while its synchronous callback runs.
+
+```ts
+import { Parser, Quantity, withRegister } from "unitsml";
+
+const work = await Quantity.parse(2, "J", { kind: "NISTq152" });
+work.plus(await Quantity.parse(3, "J", { kind: "NISTq153" })); // QuantityKindMismatchError
+
+const cwt = await Quantity.parse(2, "cwt (US)");
+const kg = await new Parser("kg").parse();
+withRegister([{ unit: "NISTu230", factor: "50", dimensions: { Mass: "1" } }],
+  () => cwt.convertToFormula(kg).value.toString());             // "100"
+```
+
 `npm run replay:conversions` replays the shared
 [unitsml-testsuite](https://github.com/unitsml/unitsml-testsuite)
 `corpora/conversions` vectors (`CONVERSION_CORPUS_DIR`), the same cases

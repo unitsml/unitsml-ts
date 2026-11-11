@@ -26,6 +26,7 @@ import {
   type NumericValue,
 } from "./model.js";
 import { Rational } from "./rational.js";
+import { currentRegister, type RegisterEntry } from "./register-scope.js";
 import { U2D, snakeCase } from "./utility.js";
 
 /** unitsml-ruby Errors::ConversionError. */
@@ -33,6 +34,14 @@ export class ConversionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ConversionError";
+  }
+}
+
+/** unitsml-ruby Errors::InexactPowerError (a ConversionError). */
+export class InexactPowerError extends ConversionError {
+  constructor(message: string) {
+    super(message);
+    this.name = "InexactPowerError";
   }
 }
 
@@ -391,9 +400,31 @@ function unitResult(unit: Unit, definitions?: Definitions): ConversionResult {
     return result(factor.mul(powExact(prefix, power)), offset);
   }
 
+  // A caller register entry (withRegister) replaces the canonical
+  // factor/offset for its unit, as a definition does. It applies to the
+  // unit itself only, never to a unit reached through another unit's
+  // root_units chain (unitsml-ruby Conversion#walk).
+  const entry = currentRegister()?.entryFor(unit.instance);
+  if (entry) return registerResult(entry, power, prefix);
+
   // The prefix scales with the unit power: 1 km2 = 1 000 000 m2.
   const [factor, offset] = recordFactor(record, power);
   return result(factor.mul(powExact(prefix, power)), offset);
+}
+
+/** A register entry as a canonical Result. Affine entries (non-zero
+ * offset) are legal only at power 1; a fractional power of a register
+ * entry is refused rather than approximated (unitsml-ruby
+ * Conversion#register_result). */
+function registerResult(entry: RegisterEntry, power: Rational, prefix: Rational): ConversionResult {
+  if (!entry.offset.isZero() && !power.equals(ONE)) {
+    throw new ConversionError(`affine unit raised to power ${power.toRubyString()}`);
+  }
+  if (!power.isInteger()) {
+    throw new InexactPowerError(`a register entry at fractional power ${power.toRubyString()} is not exact`);
+  }
+  const exponent = power.toInteger();
+  return result(entry.factor.pow(exponent).mul(prefix.pow(exponent)), entry.offset);
 }
 
 function definitionFor(
