@@ -26,3 +26,22 @@ jobs:
       - run: npm run replay:conversions
         env:
           CONVERSION_CORPUS_DIR: ${{ github.workspace }}/unitsml-testsuite/corpora/conversions
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npm run build
+      # unitsml packed alone and installed with its declared dependencies only
+      - run: node scripts/smoke-browser.mjs --declared --out "$RUNNER_TEMP/browser-proof"
+        env:
+          BROWSER: /usr/bin/google-chrome
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-proof-summary
+          path: ${{ runner.temp }}/browser-proof/summary.json
+          if-no-files-found: warn

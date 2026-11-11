@@ -14,7 +14,7 @@
     "smoke:browser": "node scripts/smoke-browser.mjs"
   },
   "dependencies": {
-    "asciiunits": "^0.1.0",
+    "asciiunits": "git+https://github.com/suleman-uzair/asciiunits-ts.git#521c0bd6dacdca31febc59b9775144d1511907b4",
     "unitsdb": "git+https://github.com/suleman-uzair/unitsdb-ts.git#22d026b81e80a15ad5b3fa253cfcf23407f18a13"
   },
   "devDependencies": {

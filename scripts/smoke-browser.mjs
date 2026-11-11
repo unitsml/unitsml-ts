@@ -9,6 +9,10 @@
 //
 // Usage: node scripts/smoke-browser.mjs --asciiunits <repo> --unitsdb <repo>
 //          [--out <dir>] [--browser <exe>]
+//        node scripts/smoke-browser.mjs --declared [--out <dir>] [--browser <exe>]
+//   --declared packs only unitsml and installs it with no overrides, so
+//   asciiunits and unitsdb come from unitsml's own declared dependencies:
+//   the install a browser consumer actually gets.
 //   BROWSER env may name the browser executable instead of --browser.
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -23,11 +27,14 @@ const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : fallback;
 };
-const repos = {
-  unitsml: ROOT,
-  asciiunits: resolve(arg("asciiunits", join(ROOT, "..", "asciiunits-ts"))),
-  unitsdb: resolve(arg("unitsdb", join(ROOT, "..", "unitsdb-ts"))),
-};
+const declared = process.argv.includes("--declared");
+const repos = declared
+  ? { unitsml: ROOT }
+  : {
+      unitsml: ROOT,
+      asciiunits: resolve(arg("asciiunits", join(ROOT, "..", "asciiunits-ts"))),
+      unitsdb: resolve(arg("unitsdb", join(ROOT, "..", "unitsdb-ts"))),
+    };
 const EXPECTED_MAIN = 17;
 const EXPECTED_ENGINE = 1;
 const npm = (args, cwd) =>
@@ -49,7 +56,7 @@ const findBrowser = () =>
 const out = resolve(arg("out", mkdtempSync(join(tmpdir(), "unitsml-browser-"))));
 mkdirSync(out, { recursive: true });
 const project = mkdtempSync(join(out, "project-"));
-const summary = { out, packages: {}, checks: {} };
+const summary = { out, mode: declared ? "declared" : "repos", packages: {}, checks: {} };
 
 // 1. Pack + install as a consumer would.
 const tarballs = {};
@@ -64,12 +71,22 @@ writeFileSync(
     name: "unitsml-browser-proof",
     private: true,
     type: "module",
-    dependencies: { unitsml: tarballs.unitsml, asciiunits: tarballs.asciiunits, unitsdb: tarballs.unitsdb },
-    overrides: { asciiunits: tarballs.asciiunits, unitsdb: tarballs.unitsdb },
+    ...(declared
+      ? { dependencies: { unitsml: tarballs.unitsml } }
+      : {
+          dependencies: { unitsml: tarballs.unitsml, asciiunits: tarballs.asciiunits, unitsdb: tarballs.unitsdb },
+          overrides: { asciiunits: tarballs.asciiunits, unitsdb: tarballs.unitsdb },
+        }),
   }, null, 2),
 );
 npm(["install", "--no-audit", "--no-fund", "--foreground-scripts"], project);
 const pkgVersion = (n) => JSON.parse(readFileSync(join(project, "node_modules", n, "package.json"), "utf8"));
+if (declared) {
+  const lock = JSON.parse(readFileSync(join(project, "package-lock.json"), "utf8")).packages;
+  for (const n of ["asciiunits", "unitsdb"]) {
+    summary.packages[n] = { version: pkgVersion(n).version, resolved: lock[`node_modules/${n}`]?.resolved ?? null };
+  }
+}
 summary.packages.parsanol = { version: pkgVersion("parsanol").version, resolved: JSON.parse(readFileSync(join(project, "package-lock.json"), "utf8")).packages["node_modules/parsanol"]?.resolved };
 const nested = execFileSync(process.execPath, ["-e", `
   const lock = require(${JSON.stringify(join(project, "package-lock.json"))});

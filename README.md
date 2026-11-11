@@ -99,3 +99,10 @@ match. The shared conformance corpora live in
 npm install
 npm run build && npm test
 ```
+
+`asciiunits` is pinned to a git commit because no published release has a
+browser entry yet; `npm install` builds it through its `prepare` script.
+`npm run smoke:browser -- --declared` packs unitsml, installs it into a
+scratch project with only its declared dependencies, and runs the browser
+proof in headless Chrome (set `BROWSER` to the executable). CI runs the same
+check.
