@@ -59,6 +59,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: unitsml/unitsml-testsuite
+          ref: 087e4ee60eb402d6436ae919f50a187faec2abb7  # keep equal to ci.yml
           path: unitsml-testsuite
 
       - name: Test and replay the conformance corpus
