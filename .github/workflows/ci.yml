@@ -10,10 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Same unitsml-testsuite commit unitsml-ruby replays
+      # (unitsml-ruby spec/fixtures/testsuite-pin.yml). Move both together.
       - uses: actions/checkout@v4
         with:
           repository: unitsml/unitsml-testsuite
+          ref: 087e4ee60eb402d6436ae919f50a187faec2abb7
           path: unitsml-testsuite
+      - name: Vendored F40 fixtures match the pinned testsuite
+        run: |
+          cmp test/fixtures/f40/unitsml-quantities.json unitsml-testsuite/corpora/features/unitsml-quantities.json
+          cmp test/fixtures/f40/ruby-unitsml-features-v1.json unitsml-testsuite/corpora/features/ruby-unitsml-features/v1/vectors.json
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
